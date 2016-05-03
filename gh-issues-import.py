@@ -15,14 +15,14 @@ config = configparser.RawConfigParser()
 
 class state:
 	current = ""
-	INITIALIZING         = "script-initializing"
-	LOADING_CONFIG       = "loading-config"
-	FETCHING_ISSUES      = "fetching-issues"
-	GENERATING           = "generating"
+	INITIALIZING		 = "script-initializing"
+	LOADING_CONFIG	   = "loading-config"
+	FETCHING_ISSUES	  = "fetching-issues"
+	GENERATING		   = "generating"
 	IMPORT_CONFIRMATION  = "import-confirmation"
-	IMPORTING            = "importing"
-	IMPORT_COMPLETE      = "import-complete"
-	COMPLETE             = "script-complete"
+	IMPORTING			= "importing"
+	IMPORT_COMPLETE	  = "import-complete"
+	COMPLETE			 = "script-complete"
 	
 state.current = state.INITIALIZING
 
@@ -39,6 +39,7 @@ def init_config():
 	config.add_section('target')
 	config.add_section('format')
 	config.add_section('settings')
+	config.add_section('token')
 	
 	arg_parser = argparse.ArgumentParser(description="Import issues from one GitHub repository into another.")
 	
@@ -50,10 +51,11 @@ def init_config():
 	arg_parser.add_argument('-p', '--password', help="The password (in plaintext) of the account that will create the new issues. The password will not be stored anywhere if passed in as an argument.")
 	arg_parser.add_argument('-s', '--source', help="The source repository which the issues should be copied from. Should be in the format `user/repository`.")
 	arg_parser.add_argument('-t', '--target', help="The destination repository which the issues should be copied to. Should be in the format `user/repository`.")
+	arg_parser.add_argument('-k', '--token', help='The access token that will be used to connect to the github instance')
 	
 	arg_parser.add_argument('--ignore-comments',  dest='ignore_comments',  action='store_true', help="Do not import comments in the issue.")		
 	arg_parser.add_argument('--ignore-milestone', dest='ignore_milestone', action='store_true', help="Do not import the milestone attached to the issue.")
-	arg_parser.add_argument('--ignore-labels',    dest='ignore_labels',    action='store_true', help="Do not import labels attached to the issue.")
+	arg_parser.add_argument('--ignore-labels',	dest='ignore_labels',	action='store_true', help="Do not import labels attached to the issue.")
 	
 	arg_parser.add_argument('--issue-template', help="Specify a template file for use with issues.")
 	arg_parser.add_argument('--comment-template', help="Specify a template file for use with comments.")
@@ -94,6 +96,7 @@ def init_config():
 	
 	if args.username: config.set('login', 'username', args.username)
 	if args.password: config.set('login', 'password', args.password)
+	if args.token: config.set('login', 'token', args.token)
 	
 	if args.source: config.set('source', 'repository', args.source)
 	if args.target: config.set('target', 'repository', args.target)
@@ -104,7 +107,7 @@ def init_config():
 	
 	config.set('settings', 'import-comments',  str(not args.ignore_comments))
 	config.set('settings', 'import-milestone', str(not args.ignore_milestone))
-	config.set('settings', 'import-labels',    str(not args.ignore_labels))
+	config.set('settings', 'import-labels',	str(not args.ignore_labels))
 	
 	config.set('settings', 'import-open-issues',   str(args.import_all or args.import_open));
 	config.set('settings', 'import-closed-issues', str(args.import_all or args.import_closed));
@@ -136,7 +139,7 @@ def init_config():
 	
 	# Prompt for username/password if none is provided in either the config or an argument
 	def get_credentials_for(which):
-		if not config.has_option(which, 'username'):
+		if not config.has_option(which, 'username') and not config.has_option(which, 'token'):
 			if config.has_option('login', 'username'):
 				config.set(which, 'username', config.get('login', 'username'))
 			elif ( (which == 'target') and query.yes_no("Do you wish to use the same credentials for the target repository?") ):
@@ -145,7 +148,7 @@ def init_config():
 				query_str = "Enter your username for '%s' at '%s': " % (config.get(which, 'repository'), config.get(which, 'server'))
 				config.set(which, 'username', query.username(query_str))
 		
-		if not config.has_option(which, 'password'):
+		if not config.has_option(which, 'password') and not config.has_option(which, 'token'):
 			if config.has_option('login', 'password'):
 				config.set(which, 'password', config.get('login', 'password'))
 			elif ( (which == 'target') and config.get('source', 'username') == config.get('target', 'username') and config.get('source', 'server') == config.get('target', 'server') ):
@@ -195,12 +198,15 @@ def send_request(which, url, post_data=None):
 	full_url = "%s/%s" % (config.get(which, 'url'), url)
 	req = urllib.request.Request(full_url, post_data)
 	
-	username = config.get(which, 'username')
-	password = config.get(which, 'password')
-	req.add_header("Authorization", b"Basic " + base64.urlsafe_b64encode(username.encode("utf-8") + b":" + password.encode("utf-8")))
+	if config.get(which, 'token'):
+		req.add_header("Authorization", "token " + config.get(which, 'token'))
+	else:
+		username = config.get(which, 'username')
+		password = config.get(which, 'password')
+		req.add_header("Authorization", b"Basic " + base64.urlsafe_b64encode(username.encode("utf-8") + b":" + password.encode("utf-8")))
 	
 	req.add_header("Content-Type", "application/json")
-	req.add_header("Accept", "application/json")
+	req.add_header("Accept", "application/vnd.github.v3+json")
 	req.add_header("User-Agent", "IQAndreas/github-issues-import")
 	
 	try:
